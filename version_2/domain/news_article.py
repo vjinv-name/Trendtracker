@@ -9,3 +9,6 @@ class NewsArticle:
     snippet: str
     pub_date: Optional[str] = None
     image_url: Optional[str] = None
+    category: Optional[str] = None
+    source: Optional[str] = None
+    keywords: Optional[str] = None

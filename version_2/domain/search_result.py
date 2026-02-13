@@ -12,6 +12,7 @@ class SearchResult:
     keyword: str
     articles: List[NewsArticle]
     ai_summary: str
+    ai_keywords: str = ""
 
     def to_dataframe(self) -> pd.DataFrame:
         """CSV 저장을 위해 Long format(기사 1건=1행)으로 변환"""
@@ -26,14 +27,15 @@ class SearchResult:
                 "url": article.url,
                 "snippet": article.snippet,
                 "pub_date": article.pub_date,
-                "ai_summary": self.ai_summary
+                "ai_summary": self.ai_summary,
+                "ai_keywords": self.ai_keywords
             })
         
         # 검색 결과가 없는 경우에도 기본 구조를 가진 DataFrame 반환
         if not data:
             return pd.DataFrame(columns=[
                 "search_key", "search_time", "keyword", "article_index",
-                "title", "url", "snippet", "pub_date", "ai_summary"
+                "title", "url", "snippet", "pub_date", "ai_summary", "ai_keywords"
             ])
             
         return pd.DataFrame(data)

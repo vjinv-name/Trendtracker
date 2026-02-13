@@ -3,7 +3,7 @@ from datetime import datetime
 from config.settings import settings
 from domain.search_result import SearchResult
 from services.search_service import search_news
-from services.ai_service import summarize_news, expand_query
+from services.ai_service import summarize_news, expand_query, correct_spelling, extract_keywords
 from repositories.search_repository import SearchRepository
 from components.search_form import render_search_form
 from components.sidebar import (
@@ -39,7 +39,7 @@ def main():
 
     # 3. 사이드바 렌더링
     render_sidebar_header()
-    num_results, category, time_range, use_ai_expansion, use_all_sources = render_settings()
+    num_results, category, time_range, use_ai_expansion, use_all_sources, language, spell_check = render_settings()
     render_info()
     
     # 검색 기록 목록 준비
@@ -65,86 +65,151 @@ def main():
     render_download_button(csv_data, len(search_keys) == 0)
 
     # 4. 메인 영역 렌더링
-    st.title("💠 TrendTracker AI")
-    st.markdown("최신 뉴스를 기반으로 실시간 트렌드를 분석하고 요약해드립니다.")
+    st.markdown("""
+        <style>
+        /* 배경 그라데이션 및 전체 폰트 설정 */
+        .stApp {
+            background: linear-gradient(180deg, #FFFFFF 0%, #F0F2F6 100%);
+            font-family: 'Pretendard', -apple-system, sans-serif;
+        }
+
+        /* 메인 타이틀 및 텍스트 시인성 */
+        .main-title {
+            font-size: 3.5rem;
+            font-weight: 800;
+            letter-spacing: -2px;
+            color: #111111;
+            margin-bottom: 0.5rem;
+            text-align: left;
+        }
+        
+        .main-subtitle {
+            font-size: 1.1rem;
+            color: #666;
+            margin-bottom: 3rem;
+        }
+
+        /* 버튼 스타일 최적화 (사용자 요청: 직각 블랙 버튼) */
+        div.stButton > button {
+            background-color: #000000 !important;
+            color: white !important;
+            border-radius: 0px !important;
+            border: none !important;
+            padding: 0.6rem 2rem !important;
+            font-weight: 600 !important;
+            width: 100% !important;
+            transition: all 0.2s ease !important;
+        }
+        div.stButton > button:hover {
+            background-color: #333333 !important;
+            transform: translateY(-1px);
+        }
+
+        /* 입력창 디자인 */
+        .stTextInput > div > div > input {
+            border-radius: 0px !important;
+            border: 1px solid #E0E0E0 !important;
+            padding: 0.75rem 1rem !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="main-title">TrendTracker</div>', unsafe_allow_html=True)
+    st.markdown('<div class="main-subtitle">전 세계 실시간 브레이킹 뉴스 및 트렌드 인사이트 분석기</div>', unsafe_allow_html=True)
+
+    # 5. 검색창 영역 (Enter 키 지원을 위해 st.form 사용)
+    with st.form("search_form", clear_on_submit=False):
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            search_keyword = st.text_input(
+                "트렌드 키워드를 입력하세요", 
+                placeholder="예: 생성형 AI, 뉴욕 증시, 비건 요리",
+                label_visibility="collapsed"
+            )
+        with col2:
+            start_search = st.form_submit_button("분석 시작")
+
     st.markdown("---")
 
-    # 검색 폼
-    search_keyword = render_search_form()
-    
-    if search_keyword:
-        # 새로운 검색 시작
+    # 6. 검색 정기 로직
+    if start_search and search_keyword:
         st.session_state.current_mode = "new_search"
         st.session_state.selected_key = None # 기록 선택 해제
         
         try:
-            # Stage 4: AI 쿼리 확장 (옵션 활성화 시)
+            # 오타 수정 로직 (사용 옵션 확인)
             actual_query = search_keyword
+            if spell_check:
+                with show_loading("검색어 교정 중..."):
+                    corrected = correct_spelling(search_keyword)
+                    if corrected.lower() != search_keyword.lower():
+                        st.info(f"💡 '{corrected}'로 검색어를 교정하여 분석을 진행합니다.")
+                        actual_query = corrected
+
+            # AI 검색어 확장
             if use_ai_expansion:
-                with show_loading(f"🤖 '{search_keyword}' 검색어를 최적화하고 있습니다..."):
-                    actual_query = expand_query(search_keyword)
-                    st.toast(f"AI 추천 검색어: {actual_query}")
+                with show_loading("검색어 최적화 중..."):
+                    actual_query = expand_query(actual_query)
+                    st.toast(f"검색 최적화: {actual_query}")
 
             # 뉴스 검색
-            with show_loading("🔍 전 세계 뉴스를 검색하고 있습니다..."):
+            with show_loading("데이터 수집 중..."):
                 articles = search_news(
                     keyword=actual_query, 
                     num_results=num_results, 
                     category=category, 
                     time_range=time_range,
-                    include_all_sources=use_all_sources
+                    include_all_sources=use_all_sources,
+                    language=language
                 )
             
             if not articles:
-                st.info("검색 결과가 없습니다.")
+                st.warning("일치하는 검색 결과가 없습니다.")
                 st.session_state.last_result = None
             else:
-                # AI 요약
-                with show_loading("🤖 AI가 내용을 요약하고 있습니다..."):
+                # AI 트렌드 분석 및 키워드 추출
+                with show_loading("AI 종합 분석 보고서 생성 중..."):
                     summary = summarize_news(articles)
+                    keywords = extract_keywords(articles)
                 
-                # 결과 객체 생성
+                # 결과 객체 생성 및 저장
                 result = SearchResult(
                     search_key=generate_search_key(search_keyword),
                     search_time=datetime.now(),
                     keyword=search_keyword,
                     articles=articles,
-                    ai_summary=summary
+                    ai_summary=summary,
+                    ai_keywords=keywords
                 )
                 
-                # 저장
-                with show_loading("💾 결과를 저장하고 있습니다..."):
-                    if repository.save(result):
-                        st.session_state.last_result = result
-                        st.success(f"'{search_keyword}' 분석 완료! {len(articles)}건의 뉴스를 찾았습니다.")
-                    else:
-                        st.error("결과 저장 중 오류가 발생했습니다.")
-                        st.session_state.last_result = result
+                if repository.save(result):
+                    st.session_state.last_result = result
+                    st.success(f"분석 완료: {len(articles)}건의 트렌드를 포착했습니다.")
+                else:
+                    st.error("결과 저장 중 오류가 발생했습니다.")
+                    st.session_state.last_result = result
         
         except AppError as e:
             handle_error(e.error_type)
             st.session_state.last_result = None
         except Exception as e:
-            st.error(f"알 수 없는 오류가 발생했습니다: {e}")
+            st.error(f"오류 발생: {e}")
             st.session_state.last_result = None
 
-    # 결과 표시 영역
+    # 7. 결과 표시 영역
     if st.session_state.current_mode == "new_search":
         if st.session_state.last_result:
             res = st.session_state.last_result
-            render_summary(res.keyword, res.ai_summary)
+            render_summary(res.keyword, res.ai_summary, res.ai_keywords)
             render_news_list(res.articles)
         elif not search_keyword:
-            # 초기 화면 환영 메시지
-            st.info("👋 환영합니다! 분석하고 싶은 키워드를 상단에 입력하고 버튼을 눌러보세요.")
-            if not search_keys:
-                st.caption("아직 검색 기록이 없습니다. 첫 번째 검색을 시작해보세요!")
+            render_info() # 초기 환영/가이드 메시지
         
     elif st.session_state.current_mode == "history" and st.session_state.selected_key:
         # 기록 모드에서 결과 불러오기
         history_result = repository.find_by_key(st.session_state.selected_key)
         if history_result:
-            render_summary(history_result.keyword, history_result.ai_summary)
+            render_summary(history_result.keyword, history_result.ai_summary, history_result.ai_keywords)
             render_news_list(history_result.articles)
         else:
             st.error("해당 기록을 불러올 수 없습니다.")

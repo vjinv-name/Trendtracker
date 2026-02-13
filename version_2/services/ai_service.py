@@ -27,6 +27,8 @@ class AIService:
 다음 뉴스 기사들의 핵심 내용을 한국어로 요약해주세요:
 - 불릿 포인트 형식으로 최대 5개 항목
 - 각 항목은 1~2문장
+- **절대로 마크다운 코드 블록(```)을 사용하지 마세요.**
+- 순수 텍스트 형식으로만 답변하세요.
 
 [뉴스 목록]
 {context}
@@ -92,8 +94,52 @@ class AIService:
                 return response.text.strip()
             return keyword
         except Exception:
-            # 실패 시 원본 검색어 반환 (중단 방지)
             return keyword
+
+    def correct_spelling(self, keyword: str) -> str:
+        """Gemini API를 사용하여 검색어의 오타를 수정합니다."""
+        prompt = f"""
+당신은 언어 전문가입니다. 다음 검색어에 오타가 있다면 올바른 표준어/용어로 수정해주세요. 
+오타가 없거나 수정이 필요 없다면 입력된 단어 그대로만 답변하세요.
+설명 없이 오타가 수정된 '단어'만 출력하세요.
+
+입력: {keyword}
+수정결과:""".strip()
+
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_id,
+                contents=prompt
+            )
+            if response and response.text:
+                return response.text.strip().replace('"', '').replace("'", "")
+            return keyword
+        except Exception:
+            return keyword
+
+    def extract_keywords(self, articles: List[NewsArticle]) -> str:
+        """뉴스 기사들에서 통합된 핵심 키워드 5개를 추출합니다."""
+        if not articles:
+            return ""
+            
+        context = "\n".join([f"- {a.title}" for a in articles])
+        prompt = f"""
+다음 뉴스 제목들을 분석하여 가장 중요한 핵심 키워드 5개를 뽑아주세요.
+- 키워드만 쉼표(,)로 구분하여 한 줄로 답변하세요.
+- 예: 인공지능, 반도체, NVIDIA, 챗봇, 기술트렌드
+
+[뉴스 제목]
+{context}
+        """.strip()
+
+        try:
+            response = self.client.models.generate_content(
+                model=self.model_id,
+                contents=prompt
+            )
+            return response.text.strip() if response and response.text else ""
+        except:
+            return ""
 
 # 싱글톤 인스턴스 또는 전역 함수 제공
 _ai_service = AIService()
@@ -101,6 +147,14 @@ _ai_service = AIService()
 def summarize_news(articles: List[NewsArticle]) -> str:
     return _ai_service.summarize_news(articles)
 
+def extract_keywords(articles: List[NewsArticle]) -> str:
+    """기사들에서 핵심 키워드를 추출합니다."""
+    return _ai_service.extract_keywords(articles)
+
 def expand_query(keyword: str) -> str:
     """검색어를 AI로 최적화합니다."""
     return _ai_service.expand_query(keyword)
+
+def correct_spelling(keyword: str) -> str:
+    """검색어의 오타를 AI로 수정합니다."""
+    return _ai_service.correct_spelling(keyword)

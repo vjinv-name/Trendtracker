@@ -10,75 +10,84 @@ class SearchService:
         """TavilyClient를 초기화합니다."""
         self.client = TavilyClient(api_key=settings.tavily_api_key)
 
-    def search_news(self, keyword: str, num_results: int = 5, category: str = "전체", time_range: str = None, include_all_sources: bool = False) -> List[NewsArticle]:
+    def search_news(self, keyword: str, num_results: int = 5, category: str = "전체", time_range: str = None, include_all_sources: bool = False, language: str = "한국어") -> List[NewsArticle]:
         """
-        Tavily API를 사용하여 뉴스를 검색하고 최신순으로 정렬하여 반환합니다.
-        카테고리가 지정된 경우 키워드에 포함하여 검색합니다.
-        time_range: 'day', 'week', 'month' 중 하나
-        include_all_sources: True일 경우 지정된 도메인 제한을 무시하고 전체 검색
+        Tavily API를 사용하여 최적화된 뉴스를 검색합니다.
+        지원 언어에 따른 쿼리 힌트를 추가하여 정확도를 높입니다.
         """
         max_retries = 1
         attempt = 0
         
-        # 실제 검색 쿼리 구성 (카테고리 반영)
-        search_query = keyword
+        # 언어별 검색 힌트 매핑
+        lang_hints = {
+            "한국어": "",
+            "English": " news",
+            "日本語": " ニュース",
+            "Deutsch": " nachrichten"
+        }
+        query_hint = lang_hints.get(language, "")
+
+        # 쿼리 구성 최적화
+        search_query = keyword + query_hint
         if category and category != "전체":
-            search_query = f"[{category}] {keyword}"
+            search_query = f"{category} {search_query}"
             
-        # 시간 범위 설정 (Tavily news topic은 'days' 파라미터 사용)
+        # 시간 범위 설정
         days_map = {"day": 1, "week": 7, "month": 30}
         days_back = days_map.get(time_range) if time_range else None
 
         while attempt <= max_retries:
             try:
-                # 설정에서 도메인 제한 리스트 가져오기 (전체 검색 옵션 확인)
                 include_domains = None if include_all_sources else settings.search_domains
                 
-                # 충분한 기사를 확보한 뒤 최신순으로 필터링하기 위해 더 많이 가져옴
-                fetch_multiplier = 4 if category != "전체" else 3
-                max_results_to_fetch = max(num_results * fetch_multiplier, 20)
-                
-                # API 호출 파라미터
+                # 가속화를 위한 파라미터 튜닝
+                # 성능 우선을 위해 search_depth를 'basic'으로 변경 (사용자 피드백 반영)
                 search_params = {
                     "query": search_query,
-                    "search_depth": "advanced",
-                    "max_results": max_results_to_fetch,
+                    "search_depth": "basic", 
+                    "max_results": num_results,
                     "topic": "news",
-                    "include_images": True
+                    "include_images": False # 이미지 수집 비활성화 (사용자 요청)
                 }
+                
+                # Tavily API는 q=... 에 언어 필터를 넣거나 검색어 자체로 판단함.
+                # 명시적인 search_language 파라미터가 없으면 쿼리에 언어를 힌트로 줄 수 있음
+                # 하지만 Tavily는 보통 쿼리 언어에 따라 자동 조절함.
+                # 여기서는 쿼리에 언어 힌트를 추가하거나 도메인 제한을 활용할 수 있으나, 일단 쿼리 자체는 유지함.
                 
                 if include_domains:
                     search_params["include_domains"] = include_domains
                 
-                # days_back이 설정된 경우 추가
                 if days_back:
                     search_params["days"] = days_back
                 
                 response = self.client.search(**search_params)
-                
                 results = response.get('results', [])
+                images = response.get('images', []) # Tavily는 별도의 이미지 화일 리스트를 주기도 함
+                
                 if not results:
                     return []
                     
-                # published_date 기준 내림차순(최신순) 정렬
-                results.sort(
-                    key=lambda x: x.get('published_date') if x.get('published_date') else "", 
-                    reverse=True
-                )
-                
-                top_results = results[:num_results]
-                images = response.get('images', [])
+                # 최신순 정렬 (Tavily basic search는 정렬을 보장하지 않으므로 수동 정렬)
+                results.sort(key=lambda x: x.get('published_date', ''), reverse=True)
                 
                 articles = []
-                for i, item in enumerate(top_results):
-                    article_image = item.get('image') or (images[i] if i < len(images) else None)
+                for i, item in enumerate(results[:num_results]):
+                    # 도메인을 출처로 활용
+                    url = item.get('url', '#')
+                    source = url.split('//')[-1].split('/')[0].replace('www.', '')
+                    
+                    # 해당 기사와 관련된 이미지가 있다면 매칭 (tavily는 리스트 순서가 항상 보장되지는 않지만 최선)
+                    img_url = images[i] if i < len(images) else None
                     
                     articles.append(NewsArticle(
-                        title=item.get('title', '제목 없음'),
-                        url=item.get('url', ''),
-                        snippet=item.get('content', ''),
+                        title=item.get('title', '제목 정보 없음'),
+                        url=url,
+                        snippet=item.get('content', '요약된 내용이 없습니다.'),
                         pub_date=item.get('published_date'),
-                        image_url=article_image
+                        image_url=img_url,
+                        category=category if category != "전체" else "News",
+                        source=source
                     ))
                     
                 return articles
@@ -87,7 +96,6 @@ class SearchService:
                 attempt += 1
                 error_str = str(e).lower()
                 
-                # 마지막 시도에서도 실패한 경우 또는 치명적인 오류인 경우 raise
                 if attempt > max_retries or "401" in error_str or "400" in error_str:
                     if "401" in error_str or ("invalid" in error_str and "api" in error_str):
                         raise AppError("api_key_invalid")
@@ -100,12 +108,11 @@ class SearchService:
                     else:
                         raise AppError("network_error")
                 
-                # 재시도 전 짧은 대기 (선택 사항)
                 import time
                 time.sleep(1)
 
 # 싱글톤 패턴 또는 전역 함수 제공
 _search_service = SearchService()
 
-def search_news(keyword: str, num_results: int = 5, category: str = "전체", time_range: str = None, include_all_sources: bool = False) -> List[NewsArticle]:
-    return _search_service.search_news(keyword, num_results, category, time_range, include_all_sources)
+def search_news(keyword: str, num_results: int = 5, category: str = "전체", time_range: str = None, include_all_sources: bool = False, language: str = "한국어") -> List[NewsArticle]:
+    return _search_service.search_news(keyword, num_results, category, time_range, include_all_sources, language)

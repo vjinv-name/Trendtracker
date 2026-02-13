@@ -1,97 +1,143 @@
 import streamlit as st
+import html
 from typing import List
 from domain.news_article import NewsArticle
 
-def render_summary(title: str, summary: str):
+def render_summary(title: str, summary: str, keywords: str = ""):
     """AI 요약 결과를 렌더링합니다."""
     st.markdown("---")
-    st.subheader(f"🤖 '{title}' 트렌드 요약")
+    st.subheader(f"'{title}' 트렌드 분석")
+    
+    if keywords:
+        # 키워드를 태그 형태로 표시
+        kw_list = [k.strip() for k in keywords.split(',') if k.strip()]
+        kw_html = " ".join([f"<span style='background:#f0f2f6; padding:4px 12px; border-radius:100px; font-size:12px; color:#4a5568; margin-right:8px; display:inline-block; margin-bottom:8px;'>#{kw}</span>" for kw in kw_list])
+        st.markdown(f"<div style='margin-bottom: 20px;'>{kw_html}</div>", unsafe_allow_html=True)
+        
     st.info(summary)
 
 def render_news_list(articles: List[NewsArticle]):
-    """검색된 뉴스 기사 리스트를 핀터레스트 스타일 그리드로 렌더링합니다."""
+    """뉴스 기사 리스트를 실제 UI 레이아웃으로 렌더링합니다."""
     st.markdown("---")
-    st.subheader("📰 관련 트렌드 뉴스")
+    st.subheader("관련 트랜드 뉴스")
     
     if not articles:
         st.info("관련 뉴스 기사가 없습니다.")
         return
 
-    # 핀터레스트 스타일 카드 디자인을 위한 커스텀 CSS
+    # 1. CSS 디자인 정의 (사용자 커스텀 디자인 반영)
     st.markdown("""
         <style>
-        /* 카드 컨테이너 */
-        .news-card-container {
+        .news-container {
             display: flex;
-            flex-wrap: wrap;
+            flex-direction: column;
             gap: 20px;
-            justify-content: space-between;
+            margin-top: 20px;
         }
-        /* 개별 카드 */
-        .st-emotion-cache-12w0qpk { /* 스트림릿 컬럼 여백 조정 */
-            padding: 0 !important;
+        .news-card {
+            background-color: #ffffff;
+            padding: 25px;
+            border-radius: 8px;
+            border: 1px solid #e0e0e0;
+            transition: all 0.3s ease;
+            position: relative;
         }
-        div[data-testid="column"] {
-            border-radius: 12px;
-            padding: 15px;
-            border: 1px solid #e1e4e8;
-            background-color: white;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-            transition: transform 0.2s, box-shadow 0.2s;
-            margin-bottom: 20px;
+        .news-card:hover {
+            border-color: #111111;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            transform: translateY(-2px);
         }
-        div[data-testid="column"]:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 8px 15px rgba(0,0,0,0.1);
-            border-color: #0366d6;
-        }
-        .date-tag {
-            color: #888;
+        .news-category {
             font-size: 0.75rem;
-            margin-bottom: 5px;
+            color: #666666;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            letter-spacing: 0.05em;
+        }
+        .news-title-link {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #111111;
+            line-height: 1.4;
+            margin-bottom: 15px;
+            text-decoration: none;
             display: block;
         }
-        .article-title {
-            font-weight: bold;
-            font-size: 1.1rem;
-            margin-bottom: 10px;
-            color: #1f2328;
-            text-decoration: none;
-            line-height: 1.3;
+        .news-title-link:hover {
+            color: #333333;
+            text-decoration: underline;
         }
-        .article-snippet {
-            font-size: 0.9rem;
-            color: #444;
+        .news-snippet {
+            font-size: 0.95rem;
+            color: #444444;
+            line-height: 1.6;
+            margin-bottom: 20px;
             display: -webkit-box;
             -webkit-line-clamp: 3;
             -webkit-box-orient: vertical;
             overflow: hidden;
-            margin-top: 10px;
+        }
+        .news-footer {
+            font-size: 0.85rem;
+            color: #888888;
+            border-top: 1px solid #f0f0f0;
+            padding-top: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .news-meta {
+            display: flex;
+            gap: 15px;
+        }
+        .read-more-btn {
+            background-color: #111111;
+            color: #ffffff !important;
+            padding: 6px 14px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: background 0.2s;
+        }
+        .read-more-btn:hover {
+            background-color: #333333;
         }
         </style>
     """, unsafe_allow_html=True)
 
-    # 3열 그리드 생성
-    cols = st.columns(3)
+    # 2. 뉴스 목록을 HTML 문자열로 구축
+    html_content = '<div class="news-container">'
     
-    for i, article in enumerate(articles):
-        with cols[i % 3]:
-            # 발행 날짜
-            if article.pub_date:
-                date_str = article.pub_date.split('T')[0] if 'T' in article.pub_date else article.pub_date
-                st.markdown(f"<span class='date-tag'>📅 {date_str}</span>", unsafe_allow_html=True)
-            else:
-                st.markdown("<span class='date-tag'>📅 날짜 정보 없음</span>", unsafe_allow_html=True)
-            
-            # 제목
-            st.markdown(f"<a href='{article.url}' target='_blank' style='text-decoration: none;'><div class='article-title'>{article.title}</div></a>", unsafe_allow_html=True)
-            
-            # 썸네일 (이미지 기능 추가 시 활성화할 자리)
-            if article.image_url:
-                st.image(article.image_url, use_column_width=True)
-            
-            # 스니펫 (내용 요약)
-            st.markdown(f"<div class='article-snippet'>{article.snippet}</div>", unsafe_allow_html=True)
-            
-            # 바로가기 링크 (이미 제목에 링크가 있지만 접근성을 위해 추가)
-            st.markdown(f"[기사 읽기]({article.url})")
+    # 반복문을 사용하여 각 뉴스를 카드로 생성
+    for article in articles:
+        # 데이터 가공 및 보안(Escape) 처리
+        title = html.escape(article.title)
+        snippet = html.escape(article.snippet)
+        url = article.url
+        date = html.escape(article.pub_date.split('T')[0] if article.pub_date and 'T' in article.pub_date else (article.pub_date or "최신"))
+        source = html.escape(article.source or "뉴스 피드")
+        category = html.escape(article.category or "NEWS")
+        
+        # 개별 뉴스 카드 HTML 생성
+        card_html = f"""
+        <div class="news-card">
+            <div class="news-category">{category}</div>
+            <a href="{url}" target="_blank" class="news-title-link">{title}</a>
+            <div class="news-snippet">{snippet}</div>
+            <div class="news-footer">
+                <div class="news-meta">
+                    <span>📅 {date}</span>
+                    <span>출처: <b>{source}</b></span>
+                </div>
+                <a href="{url}" target="_blank" class="read-more-btn">원문 보기 ↗</a>
+            </div>
+        </div>
+        """
+        html_content += card_html
+    
+    html_content += '</div>'
+
+    # 3. st.markdown을 사용하여 실제 UI로 렌더링
+    st.markdown(html_content, unsafe_allow_html=True)
